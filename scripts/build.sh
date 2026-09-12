@@ -19,10 +19,11 @@ contents="$app/Contents"
 macos="$contents/MacOS"
 
 rm -rf "$app"
-mkdir -p "$macos"
+mkdir -p "$macos" "$contents/Resources"
 
 cp "$executable" "$macos/PRMenu"
 cp "$root/Resources/Info.plist" "$contents/Info.plist"
+cp "$root/Resources/AppIcon.icns" "$contents/Resources/AppIcon.icns"
 printf 'APPL????' > "$contents/PkgInfo"
 
 if command -v codesign >/dev/null 2>&1; then
