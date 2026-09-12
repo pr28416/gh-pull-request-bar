@@ -1,9 +1,13 @@
 import AppKit
-import Combine
 import SwiftUI
 
 struct MenuBarView: View {
     @Bindable var state: AppState
+    @State private var listContentHeight: CGFloat = 0
+
+    private let panelWidth: CGFloat = 420
+    private let panelMaxHeight: CGFloat = 540
+    private let headerReserve: CGFloat = 48
 
     var body: some View {
         VStack(spacing: 0) {
@@ -16,56 +20,54 @@ struct MenuBarView: View {
             } else {
                 pullRequestList
             }
-
-            Divider()
-
-            footer
         }
-        .frame(width: 420, height: 540)
-        .task {
-            await state.refresh()
+        .frame(width: panelWidth)
+        .frame(maxHeight: panelMaxHeight, alignment: .top)
+        .fixedSize()
+        .onAppear {
+            state.setPanelVisible(true)
         }
-        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
-            Task { await state.refresh() }
+        .onDisappear {
+            state.setPanelVisible(false)
         }
     }
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "arrow.triangle.pull")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
+            if state.showsSettings {
+                Button {
+                    state.showsSettings = false
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Pull Requests")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("Back")
+            } else {
+                Text("Pull Requests")
+                    .font(.system(size: 13, weight: .semibold))
+            }
 
-            Text("Pull Requests")
-                .font(.system(size: 13, weight: .semibold))
-
-            Spacer()
+            Spacer(minLength: 8)
 
             Button {
                 Task { await state.refresh() }
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 12, weight: .semibold))
-                    .rotationEffect(.degrees(state.isLoading ? 360 : 0))
-                    .animation(
-                        state.isLoading
-                            ? .linear(duration: 0.8).repeatForever(autoreverses: false)
-                            : .default,
-                        value: state.isLoading
-                    )
+                    .symbolEffect(.rotate.clockwise, options: .repeating, isActive: state.isLoading)
+                    .frame(width: 16, height: 16)
             }
             .buttonStyle(.plain)
-            .disabled(state.isLoading)
             .help("Refresh")
 
-            Button {
+            GitHubUserChip(snapshot: state.snapshot) {
                 state.showsSettings.toggle()
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 12, weight: .semibold))
             }
-            .buttonStyle(.plain)
-            .help("Settings")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -75,7 +77,13 @@ struct MenuBarView: View {
 
     private var pullRequestList: some View {
         VStack(spacing: 0) {
-            if let errorMessage = state.errorMessage, !state.hasAnyPullRequests {
+            if state.isLoading, !state.hasAnyPullRequests {
+                StatusPane(
+                    title: "Loading pull requests",
+                    message: "Fetching created, assigned, and review-requested PRs.",
+                    systemImage: "arrow.triangle.pull"
+                )
+            } else if let errorMessage = state.errorMessage, !state.hasAnyPullRequests {
                 StatusPane(
                     title: "Couldn’t load pull requests",
                     message: errorMessage,
@@ -83,7 +91,7 @@ struct MenuBarView: View {
                 )
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 14) {
                         if let errorMessage = state.errorMessage {
                             Text(errorMessage)
                                 .font(.system(size: 11))
@@ -91,52 +99,83 @@ struct MenuBarView: View {
                                 .padding(.horizontal, 6)
                         }
 
-                        ForEach(PullRequestSection.allCases) { section in
+                        ForEach(visibleSections) { section in
                             SectionView(section: section, state: state)
                         }
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 10)
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear.preference(key: ListHeightKey.self, value: proxy.size.height)
+                        }
+                    }
+                }
+                .onPreferenceChange(ListHeightKey.self) { listContentHeight = $0 }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(height: min(max(listContentHeight, 1), panelMaxHeight - headerReserve))
+            }
+        }
+    }
+
+    private var visibleSections: [PullRequestSection] {
+        PullRequestSection.allCases.filter { section in
+            !section.hidesWhenEmpty || !state.snapshot.pullRequests(in: section).isEmpty
+        }
+    }
+}
+
+private struct GitHubUserChip: View {
+    var snapshot: PullRequestSnapshot
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                avatar
+                Text(label)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+            }
+        }
+        .buttonStyle(.plain)
+        .help("Settings")
+    }
+
+    private var label: String {
+        let name = snapshot.viewerDisplayName
+        return name.isEmpty ? "Settings" : name
+    }
+
+    @ViewBuilder
+    private var avatar: some View {
+        if let url = snapshot.viewerAvatarURL.flatMap(URL.init(string:)) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                default:
+                    placeholder
                 }
             }
+            .frame(width: 18, height: 18)
+            .clipShape(Circle())
+        } else {
+            placeholder
+                .frame(width: 18, height: 18)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
     }
 
-    private var footer: some View {
-        HStack {
-            Text(footerLabel)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            Spacer()
-
-            Button("Quit") {
-                NSApplication.shared.terminate(nil)
+    private var placeholder: some View {
+        Circle()
+            .fill(Color.secondary.opacity(0.2))
+            .overlay {
+                Image(systemName: "person.fill")
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
-            .font(.system(size: 11, weight: .medium))
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.bar)
-        .zIndex(1)
-    }
-
-    private var footerLabel: String {
-        if let lastRefreshed = state.lastRefreshed {
-            let time = lastRefreshed.formatted(date: .omitted, time: .shortened)
-            if state.snapshot.viewerLogin.isEmpty {
-                return "Updated \(time)"
-            }
-            return "@\(state.snapshot.viewerLogin) · \(time)"
-        }
-        if state.isLoading {
-            return "Loading…"
-        }
-        return "Not signed in"
     }
 }
 
@@ -145,7 +184,9 @@ private struct SectionView: View {
     var state: AppState
 
     var body: some View {
-        let pullRequests = state.snapshot.pullRequests(in: section)
+        let groups = state.snapshot.groupedPullRequests(in: section)
+        let totalCount = groups.recent.count + groups.older.count
+        let showsOlder = state.expandedOlderSections.contains(section)
 
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -156,28 +197,67 @@ private struct SectionView: View {
 
                 Spacer()
 
-                Text("\(pullRequests.count)")
+                Text("\(totalCount)")
                     .font(.system(size: 11, weight: .medium).monospacedDigit())
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 8)
 
-            if pullRequests.isEmpty {
+            if totalCount == 0 {
                 Text(section.emptyText)
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
             } else {
-                ForEach(pullRequests) { pullRequest in
-                    PullRequestRow(
-                        pullRequest: pullRequest,
-                        onOpen: { state.open(pullRequest) },
-                        onCopy: { state.copyLink(pullRequest) }
+                ForEach(groups.recent) { pullRequest in
+                    row(pullRequest)
+                }
+
+                if !groups.older.isEmpty {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            state.toggleOlder(in: section)
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .rotationEffect(.degrees(showsOlder ? 90 : 0))
+                            Text("More")
+                                .font(.system(size: 11, weight: .medium))
+                            Spacer()
+                            Text("\(groups.older.count)")
+                                .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        }
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        showsOlder
+                            ? "Hide \(groups.older.count) older pull requests"
+                            : "Show \(groups.older.count) older pull requests"
                     )
+
+                    if showsOlder {
+                        ForEach(groups.older) { pullRequest in
+                            row(pullRequest)
+                        }
+                    }
                 }
             }
         }
+    }
+
+    private func row(_ pullRequest: PullRequest) -> some View {
+        PullRequestRow(
+            pullRequest: pullRequest,
+            onOpen: { state.open(pullRequest) },
+            onCopy: { state.copyLink(pullRequest) }
+        )
     }
 }
 
@@ -199,7 +279,15 @@ private struct StatusPane: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 280)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct ListHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }

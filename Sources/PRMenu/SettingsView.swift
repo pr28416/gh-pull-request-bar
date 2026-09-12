@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -48,20 +49,19 @@ struct SettingsView: View {
                         token = ""
                     }
                 }
-
-                Spacer()
-
-                Button("Done") {
-                    state.showsSettings = false
-                    Task { await state.refresh() }
-                }
             }
             .font(.system(size: 12))
 
-            Spacer()
+            Button("Quit") {
+                NSApplication.shared.terminate(nil)
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.secondary)
+            .padding(.top, 16)
         }
         .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .onAppear {
             token = TokenStore.loadSavedToken() ?? ""
         }

@@ -5,7 +5,7 @@ enum GitHubClient {
 
     private static let query = """
     query MenuBarPullRequests {
-      viewer { login }
+      viewer { login name avatarUrl }
       created: search(query: "is:open is:pr archived:false author:@me sort:updated-desc", type: ISSUE, first: 40) {
         ...PRSearch
       }
@@ -26,6 +26,8 @@ enum GitHubClient {
           url
           isDraft
           updatedAt
+          state
+          mergeQueueEntry { state }
           author { login }
           repository { nameWithOwner }
           commits(last: 1) {
@@ -79,6 +81,8 @@ enum GitHubClient {
 
         return PullRequestSnapshot(
             viewerLogin: payload.viewer.login,
+            viewerName: payload.viewer.name,
+            viewerAvatarURL: payload.viewer.avatarUrl,
             created: payload.created.pullRequests,
             assigned: payload.assigned.pullRequests,
             reviewRequested: payload.reviewRequested.pullRequests
@@ -104,6 +108,8 @@ private struct GraphQLData: Decodable {
 
 private struct Viewer: Decodable {
     var login: String
+    var name: String?
+    var avatarUrl: String?
 }
 
 private struct SearchConnection: Decodable {
@@ -121,6 +127,8 @@ private struct PullRequestNode: Decodable {
     var url: String
     var isDraft: Bool?
     var updatedAt: Date
+    var state: String?
+    var mergeQueueEntry: MergeQueueEntry?
     var author: Actor?
     var repository: Repository
     var commits: CommitConnection?
@@ -135,9 +143,32 @@ private struct PullRequestNode: Decodable {
             updatedAt: updatedAt,
             repository: repository.nameWithOwner,
             author: author?.login ?? "unknown",
-            checks: commits?.summary ?? CheckSummary(passed: 0, failed: 0, pending: 0)
+            checks: commits?.summary ?? CheckSummary(passed: 0, failed: 0, pending: 0),
+            mergeStatus: mergeStatus(
+                state: state,
+                isDraft: isDraft ?? false,
+                mergeQueueEntry: mergeQueueEntry
+            )
         )
     }
+}
+
+private func mergeStatus(state: String?, isDraft: Bool, mergeQueueEntry: MergeQueueEntry?) -> MergeStatus {
+    if mergeQueueEntry != nil, state == "OPEN" || state == nil {
+        return .mergeQueue
+    }
+    switch state {
+    case "MERGED":
+        return .merged
+    case "CLOSED":
+        return .closed
+    default:
+        return isDraft ? .draft : .open
+    }
+}
+
+private struct MergeQueueEntry: Decodable {
+    var state: String?
 }
 
 private struct Actor: Decodable {

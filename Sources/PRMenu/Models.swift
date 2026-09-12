@@ -1,6 +1,6 @@
 import Foundation
 
-struct PullRequest: Identifiable, Hashable, Sendable {
+struct PullRequest: Identifiable, Hashable, Sendable, Codable {
     let id: String
     let number: Int
     let title: String
@@ -10,9 +10,33 @@ struct PullRequest: Identifiable, Hashable, Sendable {
     let repository: String
     let author: String
     let checks: CheckSummary
+    let mergeStatus: MergeStatus
 }
 
-struct CheckSummary: Hashable, Sendable {
+enum MergeStatus: String, Codable, Sendable {
+    case open
+    case draft
+    case closed
+    case merged
+    case mergeQueue
+
+    var accessibilityLabel: String {
+        switch self {
+        case .open:
+            return "Open"
+        case .draft:
+            return "Draft"
+        case .closed:
+            return "Closed"
+        case .merged:
+            return "Merged"
+        case .mergeQueue:
+            return "On merge queue"
+        }
+    }
+}
+
+struct CheckSummary: Hashable, Sendable, Codable {
     var passed: Int
     var failed: Int
     var pending: Int
@@ -38,13 +62,42 @@ enum PullRequestSection: String, CaseIterable, Identifiable, Sendable {
             return "No pull requests waiting for your review."
         }
     }
+
+    var hidesWhenEmpty: Bool {
+        switch self {
+        case .created:
+            return false
+        case .assigned, .reviewRequested:
+            return true
+        }
+    }
 }
 
-struct PullRequestSnapshot: Sendable {
+struct PullRequestSnapshot: Sendable, Codable {
     var viewerLogin: String
+    var viewerName: String?
+    var viewerAvatarURL: String?
     var created: [PullRequest]
     var assigned: [PullRequest]
     var reviewRequested: [PullRequest]
+
+    static let empty = PullRequestSnapshot(
+        viewerLogin: "",
+        viewerName: nil,
+        viewerAvatarURL: nil,
+        created: [],
+        assigned: [],
+        reviewRequested: []
+    )
+
+    var viewerDisplayName: String {
+        if let viewerName, !viewerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return viewerName
+        }
+        return viewerLogin
+    }
+
+    var hasAnyPullRequests: Bool { uniqueCount > 0 }
 
     func pullRequests(in section: PullRequestSection) -> [PullRequest] {
         switch section {
@@ -57,8 +110,31 @@ struct PullRequestSnapshot: Sendable {
         }
     }
 
+    func groupedPullRequests(in section: PullRequestSection, now: Date = Date()) -> (
+        recent: [PullRequest],
+        older: [PullRequest]
+    ) {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now
+        let pullRequests = pullRequests(in: section)
+        return (
+            pullRequests.filter { $0.updatedAt >= cutoff },
+            pullRequests.filter { $0.updatedAt < cutoff }
+        )
+    }
+
     var uniqueCount: Int {
         Set(created.map(\.id) + assigned.map(\.id) + reviewRequested.map(\.id)).count
+    }
+
+    var openAuthoredCount: Int {
+        created.filter { pullRequest in
+            switch pullRequest.mergeStatus {
+            case .open, .draft, .mergeQueue:
+                return true
+            case .closed, .merged:
+                return false
+            }
+        }.count
     }
 }
 

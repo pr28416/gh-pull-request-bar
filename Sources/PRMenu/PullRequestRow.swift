@@ -10,39 +10,32 @@ struct PullRequestRow: View {
 
     var body: some View {
         Button(action: onOpen) {
-            HStack(alignment: .center, spacing: 10) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(pullRequest.title)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(pullRequest.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
+                HStack(spacing: 6) {
                     HStack(spacing: 5) {
                         Text(pullRequest.repository)
                         Text("·")
-                        Text("#" + String(pullRequest.number))
+                        HStack(spacing: 3) {
+                            MergeStatusIcon(status: displayStatus)
+                            Text("#" + String(pullRequest.number))
+                        }
                         Text("·")
                         Text(pullRequest.updatedAt.relativeLabel)
-                        if pullRequest.isDraft {
-                            Text("Draft")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
-                                .overlay(
-                                    Capsule().strokeBorder(Color.secondary.opacity(0.45), lineWidth: 1)
-                                )
-                        }
                     }
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+
+                    Spacer(minLength: 6)
+
+                    CheckStatusView(summary: pullRequest.checks, compact: true)
                 }
-
-                Spacer(minLength: 8)
-
-                CheckStatusView(summary: pullRequest.checks)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
@@ -68,8 +61,16 @@ struct PullRequestRow: View {
         .accessibilityLabel(accessibilityLabel)
     }
 
+    private var displayStatus: MergeStatus {
+        if pullRequest.isDraft, pullRequest.mergeStatus == .open {
+            return .draft
+        }
+        return pullRequest.mergeStatus
+    }
+
     private var accessibilityLabel: String {
         var parts = [
+            displayStatus.accessibilityLabel,
             pullRequest.title,
             "\(pullRequest.repository) #\(pullRequest.number)",
         ]

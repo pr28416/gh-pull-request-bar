@@ -78,15 +78,25 @@ struct CheckStatusRing: View {
 
 struct CheckStatusView: View {
     var summary: CheckSummary
+    var compact: Bool = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            CheckStatusRing(summary: summary)
+        HStack(spacing: compact ? 4 : 6) {
+            CheckStatusRing(
+                summary: summary,
+                size: compact ? 12 : 18,
+                lineWidth: compact ? 2 : 3
+            )
             Text(fractionText)
-                .font(.caption.monospacedDigit().weight(.medium))
+                .font(
+                    compact
+                        ? .system(size: 11, weight: .medium).monospacedDigit()
+                        : .caption.monospacedDigit().weight(.medium)
+                )
                 .foregroundStyle(fractionColor)
-                .frame(minWidth: 28, alignment: .leading)
+                .frame(minWidth: compact ? 0 : 28, alignment: .leading)
         }
+        .fixedSize()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
     }
