@@ -30,6 +30,10 @@ enum GitHubClient {
           mergeQueueEntry { state }
           author { login }
           repository { nameWithOwner }
+          baseRefName
+          headRefName
+          additions
+          deletions
           commits(last: 1) {
             nodes {
               commit {
@@ -131,6 +135,10 @@ private struct PullRequestNode: Decodable {
     var mergeQueueEntry: MergeQueueEntry?
     var author: Actor?
     var repository: Repository
+    var baseRefName: String?
+    var headRefName: String?
+    var additions: Int?
+    var deletions: Int?
     var commits: CommitConnection?
 
     func asPullRequest() -> PullRequest {
@@ -143,6 +151,10 @@ private struct PullRequestNode: Decodable {
             updatedAt: updatedAt,
             repository: repository.nameWithOwner,
             author: author?.login ?? "unknown",
+            baseRefName: baseRefName ?? "",
+            headRefName: headRefName ?? "",
+            additions: additions ?? 0,
+            deletions: deletions ?? 0,
             checks: commits?.summary ?? CheckSummary(passed: 0, failed: 0, pending: 0),
             mergeStatus: mergeStatus(
                 state: state,

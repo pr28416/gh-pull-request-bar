@@ -34,6 +34,13 @@ struct PullRequestRow: View {
 
                     Spacer(minLength: 6)
 
+                    if pullRequest.hasDiff {
+                        DiffStatView(
+                            additions: pullRequest.additions,
+                            deletions: pullRequest.deletions
+                        )
+                    }
+
                     CheckStatusView(summary: pullRequest.checks, compact: true)
                 }
             }
@@ -62,10 +69,7 @@ struct PullRequestRow: View {
     }
 
     private var displayStatus: MergeStatus {
-        if pullRequest.isDraft, pullRequest.mergeStatus == .open {
-            return .draft
-        }
-        return pullRequest.mergeStatus
+        pullRequest.displayStatus
     }
 
     private var accessibilityLabel: String {
@@ -74,10 +78,45 @@ struct PullRequestRow: View {
             pullRequest.title,
             "\(pullRequest.repository) #\(pullRequest.number)",
         ]
+        if pullRequest.hasDiff {
+            parts.append("+\(pullRequest.additions.formatted()) -\(pullRequest.deletions.formatted())")
+        }
         if pullRequest.checks.hasChecks {
             parts.append("\(pullRequest.checks.passed) of \(pullRequest.checks.total) checks passed")
         }
         return parts.joined(separator: ", ")
+    }
+}
+
+private struct DiffStatView: View {
+    var additions: Int
+    var deletions: Int
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text("+\(additions.formatted())")
+                .foregroundStyle(additionColor)
+            Text("-\(deletions.formatted())")
+                .foregroundStyle(deletionColor)
+        }
+        .font(.system(size: 11, weight: .medium).monospacedDigit())
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("+\(additions.formatted()) minus \(deletions.formatted())")
+    }
+
+    private var additionColor: Color {
+        colorScheme == .dark
+            ? Color(red: 63 / 255, green: 185 / 255, blue: 80 / 255)
+            : Color(red: 26 / 255, green: 127 / 255, blue: 55 / 255)
+    }
+
+    private var deletionColor: Color {
+        colorScheme == .dark
+            ? Color(red: 248 / 255, green: 81 / 255, blue: 73 / 255)
+            : Color(red: 207 / 255, green: 34 / 255, blue: 46 / 255)
     }
 }
 

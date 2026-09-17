@@ -13,7 +13,6 @@ final class AppState {
     var lastRefreshed: Date?
     var tokenSource: TokenSource = .missing
     var showsSettings = false
-    var expandedOlderSections: Set<PullRequestSection> = []
 
     var uniqueCount: Int { snapshot.uniqueCount }
     var openAuthoredCount: Int { snapshot.openAuthoredCount }
@@ -151,13 +150,5 @@ final class AppState {
     func copyLink(_ pullRequest: PullRequest) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(pullRequest.url, forType: .string)
-    }
-
-    func toggleOlder(in section: PullRequestSection) {
-        if expandedOlderSections.contains(section) {
-            expandedOlderSections.remove(section)
-        } else {
-            expandedOlderSections.insert(section)
-        }
     }
 }

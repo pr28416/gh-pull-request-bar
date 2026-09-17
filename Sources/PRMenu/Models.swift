@@ -9,8 +9,35 @@ struct PullRequest: Identifiable, Hashable, Sendable, Codable {
     let updatedAt: Date
     let repository: String
     let author: String
+    let baseRefName: String
+    let headRefName: String
+    let additions: Int
+    let deletions: Int
     let checks: CheckSummary
     let mergeStatus: MergeStatus
+
+    var hasDiff: Bool { additions > 0 || deletions > 0 }
+
+    var displayStatus: MergeStatus {
+        if isDraft, mergeStatus == .open {
+            return .draft
+        }
+        return mergeStatus
+    }
+
+    func matches(_ query: String) -> Bool {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return true }
+
+        if title.localizedStandardContains(needle) { return true }
+        if repository.localizedStandardContains(needle) { return true }
+        if author.localizedStandardContains(needle) { return true }
+        if baseRefName.localizedStandardContains(needle) { return true }
+        if headRefName.localizedStandardContains(needle) { return true }
+        if String(number).localizedStandardContains(needle) { return true }
+        if "#\(number)".localizedStandardContains(needle) { return true }
+        return false
+    }
 }
 
 enum MergeStatus: String, Codable, Sendable {
@@ -110,20 +137,19 @@ struct PullRequestSnapshot: Sendable, Codable {
         }
     }
 
-    func groupedPullRequests(in section: PullRequestSection, now: Date = Date()) -> (
-        recent: [PullRequest],
-        older: [PullRequest]
-    ) {
-        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now
-        let pullRequests = pullRequests(in: section)
-        return (
-            pullRequests.filter { $0.updatedAt >= cutoff },
-            pullRequests.filter { $0.updatedAt < cutoff }
-        )
-    }
-
     var uniqueCount: Int {
         Set(created.map(\.id) + assigned.map(\.id) + reviewRequested.map(\.id)).count
+    }
+
+    var uniquePullRequests: [PullRequest] {
+        var seen = Set<String>()
+        var ordered: [PullRequest] = []
+        for pullRequest in created + assigned + reviewRequested {
+            if seen.insert(pullRequest.id).inserted {
+                ordered.append(pullRequest)
+            }
+        }
+        return ordered
     }
 
     var openAuthoredCount: Int {

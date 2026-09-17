@@ -4,10 +4,14 @@ import SwiftUI
 struct MenuBarView: View {
     @Bindable var state: AppState
     @State private var listContentHeight: CGFloat = 0
+    @State private var searchText = ""
+    @State private var showsGraph = false
+    @FocusState private var isSearchFocused: Bool
 
-    private let panelWidth: CGFloat = 420
-    private let panelMaxHeight: CGFloat = 540
+    private var panelWidth: CGFloat { showsGraph ? 720 : 420 }
+    private var panelMaxHeight: CGFloat { showsGraph ? 640 : 540 }
     private let headerReserve: CGFloat = 48
+    private let searchReserve: CGFloat = 40
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,7 +32,17 @@ struct MenuBarView: View {
             state.setPanelVisible(true)
         }
         .onDisappear {
+            searchText = ""
+            showsGraph = false
             state.setPanelVisible(false)
+        }
+        .background {
+            Button("Search pull requests") {
+                guard !state.showsSettings else { return }
+                isSearchFocused = true
+            }
+            .keyboardShortcut("f", modifiers: .command)
+            .hidden()
         }
     }
 
@@ -65,6 +79,17 @@ struct MenuBarView: View {
             .buttonStyle(.plain)
             .help("Refresh")
 
+            Button {
+                showsGraph.toggle()
+            } label: {
+                Image(systemName: showsGraph ? "list.bullet" : "arrow.triangle.branch")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 16, height: 16)
+            }
+            .buttonStyle(.plain)
+            .help(showsGraph ? "Show list" : "Show merge graph")
+            .disabled(state.showsSettings)
+
             GitHubUserChip(snapshot: state.snapshot) {
                 state.showsSettings.toggle()
             }
@@ -90,37 +115,124 @@ struct MenuBarView: View {
                     systemImage: "exclamationmark.triangle"
                 )
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        if let errorMessage = state.errorMessage {
-                            Text(errorMessage)
-                                .font(.system(size: 11))
-                                .foregroundStyle(.red)
-                                .padding(.horizontal, 6)
-                        }
+                VStack(spacing: 0) {
+                    searchBar
 
-                        ForEach(visibleSections) { section in
-                            SectionView(section: section, state: state)
+                    if showsGraph {
+                        MergeGraphView(
+                            pullRequests: state.snapshot.uniquePullRequests,
+                            query: searchText,
+                            onOpen: { state.open($0) }
+                        )
+                        .frame(
+                            width: panelWidth,
+                            height: panelMaxHeight - headerReserve - searchReserve
+                        )
+                    } else {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 14) {
+                                if let errorMessage = state.errorMessage {
+                                    Text(errorMessage)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.red)
+                                        .padding(.horizontal, 6)
+                                }
+
+                                if visibleSections.isEmpty {
+                                    Text(emptyFilterText)
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.tertiary)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 12)
+                                } else {
+                                    ForEach(visibleSections) { section in
+                                        SectionView(
+                                            section: section,
+                                            pullRequests: pullRequests(in: section),
+                                            state: state
+                                        )
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 10)
+                            .background {
+                                GeometryReader { proxy in
+                                    Color.clear.preference(key: ListHeightKey.self, value: proxy.size.height)
+                                }
+                            }
                         }
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 10)
-                    .background {
-                        GeometryReader { proxy in
-                            Color.clear.preference(key: ListHeightKey.self, value: proxy.size.height)
-                        }
+                        .onPreferenceChange(ListHeightKey.self) { listContentHeight = $0 }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .frame(height: min(max(listContentHeight, 1), panelMaxHeight - headerReserve - searchReserve))
                     }
                 }
-                .onPreferenceChange(ListHeightKey.self) { listContentHeight = $0 }
-                .scrollBounceBehavior(.basedOnSize)
-                .frame(height: min(max(listContentHeight, 1), panelMaxHeight - headerReserve))
             }
         }
     }
 
+    private var searchBar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            TextField("Search pull requests", text: $searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .focused($isSearchFocused)
+                .onKeyPress(.escape) {
+                    if !searchText.isEmpty {
+                        searchText = ""
+                        return .handled
+                    }
+                    isSearchFocused = false
+                    return .handled
+                }
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear search")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+    }
+
+    private var emptyFilterText: String {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if query.isEmpty {
+            return "No pull requests to show."
+        }
+        return "No pull requests match “\(query)”."
+    }
+
+    private var isSearching: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func pullRequests(in section: PullRequestSection) -> [PullRequest] {
+        state.snapshot.pullRequests(in: section).filter { $0.matches(searchText) }
+    }
+
     private var visibleSections: [PullRequestSection] {
         PullRequestSection.allCases.filter { section in
-            !section.hidesWhenEmpty || !state.snapshot.pullRequests(in: section).isEmpty
+            let pullRequests = pullRequests(in: section)
+            if isSearching {
+                return !pullRequests.isEmpty
+            }
+            return !section.hidesWhenEmpty || !pullRequests.isEmpty
         }
     }
 }
@@ -181,13 +293,10 @@ private struct GitHubUserChip: View {
 
 private struct SectionView: View {
     var section: PullRequestSection
+    var pullRequests: [PullRequest]
     var state: AppState
 
     var body: some View {
-        let groups = state.snapshot.groupedPullRequests(in: section)
-        let totalCount = groups.recent.count + groups.older.count
-        let showsOlder = state.expandedOlderSections.contains(section)
-
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(section.rawValue)
@@ -197,56 +306,21 @@ private struct SectionView: View {
 
                 Spacer()
 
-                Text("\(totalCount)")
+                Text("\(pullRequests.count)")
                     .font(.system(size: 11, weight: .medium).monospacedDigit())
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 8)
 
-            if totalCount == 0 {
+            if pullRequests.isEmpty {
                 Text(section.emptyText)
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
             } else {
-                ForEach(groups.recent) { pullRequest in
+                ForEach(pullRequests) { pullRequest in
                     row(pullRequest)
-                }
-
-                if !groups.older.isEmpty {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            state.toggleOlder(in: section)
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 9, weight: .semibold))
-                                .rotationEffect(.degrees(showsOlder ? 90 : 0))
-                            Text("More")
-                                .font(.system(size: 11, weight: .medium))
-                            Spacer()
-                            Text("\(groups.older.count)")
-                                .font(.system(size: 11, weight: .medium).monospacedDigit())
-                        }
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(
-                        showsOlder
-                            ? "Hide \(groups.older.count) older pull requests"
-                            : "Show \(groups.older.count) older pull requests"
-                    )
-
-                    if showsOlder {
-                        ForEach(groups.older) { pullRequest in
-                            row(pullRequest)
-                        }
-                    }
                 }
             }
         }

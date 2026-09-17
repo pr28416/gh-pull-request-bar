@@ -1,7 +1,7 @@
 import Foundation
 
 enum SnapshotCache {
-    private static let version = 3
+    private static let version = 5
 
     static func load() -> (snapshot: PullRequestSnapshot, lastRefreshed: Date)? {
         guard let url = fileURL, FileManager.default.fileExists(atPath: url.path) else {
